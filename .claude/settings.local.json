@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/nicoz/.claude/projects/d--canScan-cat-parser/memory//**)",
+      "Bash(head -c 30000 /d/canScan/cat/28900U_23012026.CAT)",
+      "Read(//tmp/**)",
+      "Bash(node -e ' *)",
+      "Bash(npx tsx *)",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=6144\" npx tsx src/index.ts 'D:\\\\canScan\\\\cat\\\\28900U_23012026.CAT')",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=10240\" npx tsx src/index.ts 'D:\\\\canScan\\\\cat\\\\28900U_23012026.CAT')",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=10240\" npx tsx src/index.ts 'D:\\\\canScan\\\\cat\\\\28900U_23012026.CAT' --search 3040203VK4734A)",
+      "Bash(npm install *)",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=10240\" npx tsx src/index.ts 'D:\\\\canScan\\\\cat\\\\28900U_23012026.CAT' --load --dry-run)",
+      "Bash(node -e 'const fs = require\\(\"fs\"\\); const buf = fs.readFileSync\\(\"D:\\\\\\\\canScan\\\\\\\\cat\\\\\\\\28900U_23012026.CAT\", \"latin1\"\\).substring\\(0, 100\\); console.log\\(JSON.stringify\\(buf\\)\\); console.log\\(\"Position of 20260123:\", buf.indexOf\\(\"20260123\"\\)\\);')",
+      "Bash(node -e 'const fs = require\\(\"fs\"\\); const buf = fs.readFileSync\\(\"D:/canScan/cat/28900U_23012026.CAT\", \"latin1\"\\).substring\\(0, 100\\); console.log\\(JSON.stringify\\(buf\\)\\); console.log\\(\"Position of 20260123:\", buf.indexOf\\(\"20260123\"\\)\\);')",
+      "Bash(node -e 'const fs = require\\(\"fs\"\\); const fd = fs.openSync\\(\"D:/canScan/cat/28900U_23012026.CAT\", \"r\"\\); const b = Buffer.alloc\\(100\\); fs.readSync\\(fd, b, 0, 100, 0\\); fs.closeSync\\(fd\\); const buf = b.toString\\(\"latin1\"\\); console.log\\(JSON.stringify\\(buf\\)\\); console.log\\(\"Position of 20260123:\", buf.indexOf\\(\"20260123\"\\)\\);')",
+      "Bash(rm -f run.log)",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=10240\" npx tsx src/index.ts \"D:\\\\canScan\\\\cat\\\\28900U_23012026.CAT\" --load)",
+      "Bash(awk '/0.000 edificios cargados/ || /0.000 tipolog..as cargadas/ || /Cargando a Supabase/ || /Limpiando tipolog/ || /edificios cargados \\\\\\(/ || /tipolog..as cargadas \\\\\\(/ || /Validaci/ || /Edificios en BD/ || /Tipolog..as en BD/ || /Sample edificio/ || /parcel_ref:/ || /^    address/ || /Tiempo carga/ || /Tiempo total/ || /Fuente:/ || /Error batch/ || /Error fatal/ || /FATAL/ || /heap out/ { print; fflush\\(\\) }')",
+      "Bash(awk '/Edificios a cargar/ || /Tipolog..as a cargar/ || /Cargando a Supabase/ || /Limpiando tipolog/ || /0.000 edificios cargados/ || /0.000 tipolog..as cargadas/ || /edificios cargados \\\\\\(/ || /tipolog..as cargadas \\\\\\(/ || /Validaci/ || /Edificios en BD/ || /Tipolog..as en BD/ || /Tiempo carga/ || /Tiempo total/ || /Error batch/ || /Error fatal/ || /FATAL/ || /heap out/ { print; fflush\\(\\) }')",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=10240\" npx tsx src/prune.ts \"D:\\\\canScan\\\\cat\\\\28900U_23012026.CAT\")"
+    ],
+    "additionalDirectories": [
+      "D:\\canScan\\cat-parser",
+      "D:\\canScan\\cat-parser\\src"
+    ]
+  }
+}
