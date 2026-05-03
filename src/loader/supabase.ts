@@ -40,7 +40,9 @@ export class SupabaseLoader {
 
   constructor(opts: LoaderOpts) {
     this.dryRun = opts.dryRun;
-    this.batchSize = opts.batchSize ?? 500;
+    // Batch size reducido tras observar statement timeouts en Málaga: con 500
+    // rows/insert algunos batches >8s bajo carga → 50 rows/insert << 8s siempre.
+    this.batchSize = opts.batchSize ?? 50;
     this.progressEvery = opts.progressEvery ?? 5_000;
     if (!this.dryRun) {
       const url = process.env.SUPABASE_URL;
@@ -127,14 +129,34 @@ export class SupabaseLoader {
     let errors = 0;
     for (let i = 0; i < rows.length; i += this.batchSize) {
       const batch = rows.slice(i, i + this.batchSize);
-      const { error } = await client.from("building_typologies").insert(batch);
-      if (error) {
+
+      // Retry con backoff: 0s → 2s → 5s → fail. Mitiga statement timeouts
+      // transitorios de Supabase observados en Málaga.
+      const delays = [0, 2000, 5000];
+      let lastError: { message: string } | null = null;
+      let success = false;
+      for (let attempt = 0; attempt < delays.length; attempt++) {
+        if (delays[attempt] > 0) await new Promise((r) => setTimeout(r, delays[attempt]));
+        const { error } = await client.from("building_typologies").insert(batch);
+        if (!error) {
+          success = true;
+          lastError = null;
+          break;
+        }
+        lastError = error;
+        if (attempt < delays.length - 1) {
+          console.error(
+            `  ↻ Reintento batch tipologías [${i}-${i + batch.length}] tras error: ${error.message}`,
+          );
+        }
+      }
+      if (success) {
+        inserted += batch.length;
+      } else {
         errors += batch.length;
         console.error(
-          `  ⚠️  Error batch tipologías [${i}-${i + batch.length}]: ${error.message}`,
+          `  ⚠️  Error batch tipologías [${i}-${i + batch.length}] (3 intentos): ${lastError?.message}`,
         );
-      } else {
-        inserted += batch.length;
       }
       if (inserted % this.progressEvery < this.batchSize) {
         process.stdout.write(
