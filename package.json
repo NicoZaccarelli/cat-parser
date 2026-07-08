@@ -17,6 +17,11 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.104.1",
-    "dotenv": "^17.4.2"
+    "@types/proj4": "^2.5.6",
+    "@types/unzipper": "^0.10.11",
+    "dotenv": "^17.4.2",
+    "proj4": "^2.20.9",
+    "saxes": "^6.0.0",
+    "unzipper": "^0.12.5"
   }
 }
