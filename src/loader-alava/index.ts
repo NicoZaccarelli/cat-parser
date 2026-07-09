@@ -30,6 +30,7 @@ import {
   ringsToMultiPolygonWKT,
   parsePosList,
 } from "../loader-bizkaia/reproject.js";
+import { ALAVA_MUNICIPIOS } from "./alava-municipios.js";
 
 dotenv.config();
 
@@ -266,11 +267,12 @@ async function main() {
   const buildings = await parseBuGml(ZIP_BU, entryName);
   console.log(`Buildings parseados: ${buildings.length}`);
 
-  // Nombre del municipio: usamos localId prefix + tabla de códigos oficial.
-  // AFA usa códigos propios de 4 dígitos (010X..017X). Para este loader
-  // usamos "AFA-{cod4}" como fallback y luego el municipality se puede
-  // mejorar mapeándolo desde un catálogo externo si aparece.
-  const municipality = `Álava-${codMun}`;
+  // Nombre del municipio: los GML AFA no traen el nombre (bu-base:name
+  // viene con nilReason=Unpopulated). Se resuelve por tabla estática
+  // src/loader-alava/alava-municipios.ts. El fallback "Álava-XXXX" queda
+  // por si aparece un código nuevo no cubierto por la tabla — así se
+  // detecta a simple vista en la UI.
+  const municipality = ALAVA_MUNICIPIOS.get(codMun) ?? `Álava-${codMun}`;
 
   // Counts por currentUse
   const useCounts = new Map<string, number>();

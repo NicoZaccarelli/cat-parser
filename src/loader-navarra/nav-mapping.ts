@@ -171,11 +171,14 @@ export function mapNavDestino(destino: string): {
 }
 
 // ─── Parser ancho fijo unidades_urbanas ─────────────────────────────────────
-// Layout confirmado del prompt (93 chars/línea, LATIN-1):
+// Layout REAL (101 chars/línea, LATIN-1), corregido tras validación en
+// Pamplona (parcela 02/0532 daba superficies astronómicas por offset drift).
+// El prompt inicial documentaba 93 chars con superficies 10v2 — INCORRECTO.
 //   Municipio(3) Población(4) Polígono(2) Parcela(4) Subárea(2) Unidad(4)
-//   Escalera(1) Planta(2) Puerta(10) TipoConstr(4) Cat(1)
-//   SupPrivativa(10v2) SupCerrada(10v2) SupAbierta(10v2) SupComunes(10v2)
+//   _sep(1) Planta(2) Puerta+Escalera(10) TipoConstr(4) Cat(1)
+//   SupPrivativa(12v2) SupCerrada(12v2) SupAbierta(12v2) SupComunes(12v2)
 //   AñoConstr(4) GradoRef(1) AñoRef(4) Destino(2) Conserv(3) VivInt(1) Consumo(1)
+// = 3+4+2+4+2+4+1+2+10+4+1+12+12+12+12+4+1+4+2+3+1+1 = 101 chars.
 
 export interface UnidadUrbanaRaw {
   mun: string;    // "183"
@@ -211,7 +214,7 @@ function parseIntSafe(s: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function parseDecimal10v2(s: string): number {
+function parseDecimal12v2(s: string): number {
   const n = parseIntSafe(s.trim());
   return n / 100;
 }
@@ -223,7 +226,7 @@ function parseYear(s: string): number | null {
 }
 
 export function parseUnidadUrbana(line: string): UnidadUrbanaRaw | null {
-  if (line.length < 90) return null;
+  if (line.length < 101) return null;
   return {
     mun: slice(line, 0, 3),
     pob: slice(line, 3, 7),
@@ -236,17 +239,17 @@ export function parseUnidadUrbana(line: string): UnidadUrbanaRaw | null {
     puerta: slice(line, 22, 32).trimEnd(),
     tipoConstr: slice(line, 32, 36),
     categoria: slice(line, 36, 37),
-    supPriv: parseDecimal10v2(slice(line, 37, 47)),
-    supCerr: parseDecimal10v2(slice(line, 47, 57)),
-    supAbi: parseDecimal10v2(slice(line, 57, 67)),
-    supCom: parseDecimal10v2(slice(line, 67, 77)),
-    anoConstr: parseYear(slice(line, 77, 81)),
-    gradoRef: slice(line, 81, 82),
-    anoRef: parseYear(slice(line, 82, 86)),
-    destino: slice(line, 86, 88),
-    conserv: slice(line, 88, 91),
-    vivInt: slice(line, 91, 92),
-    consumo: slice(line, 92, 93),
+    supPriv: parseDecimal12v2(slice(line, 37, 49)),
+    supCerr: parseDecimal12v2(slice(line, 49, 61)),
+    supAbi: parseDecimal12v2(slice(line, 61, 73)),
+    supCom: parseDecimal12v2(slice(line, 73, 85)),
+    anoConstr: parseYear(slice(line, 85, 89)),
+    gradoRef: slice(line, 89, 90),
+    anoRef: parseYear(slice(line, 90, 94)),
+    destino: slice(line, 94, 96),
+    conserv: slice(line, 96, 99),
+    vivInt: slice(line, 99, 100),
+    consumo: slice(line, 100, 101),
   };
 }
 
