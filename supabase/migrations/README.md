@@ -10,6 +10,7 @@ aplicable con Supabase Studio → SQL Editor → Run.
 | [../schema.sql](../schema.sql) | Genesis | main | Tablas base `buildings` + `building_typologies` + vista `buildings_full`. |
 | [20260708_01_foral_bizkaia_base.sql](20260708_01_foral_bizkaia_base.sql) | 2026-07-07 | feat/foral-bizkaia | `source` column, vista recreada, PostGIS + `parcel_geometries` + RPC v1. |
 | [20260708_02_foral_rpc_nearest.sql](20260708_02_foral_rpc_nearest.sql) | 2026-07-07 | feat/foral-bizkaia | RPC v2 con fallback nearest (ST_DWithin 30m default). |
+| [20260710_03_foral_get_geometry.sql](20260710_03_foral_get_geometry.sql) | 2026-07-10 | feat/foral-gipuzkoa | RPC `get_foral_parcel_geometry(foral_id) → TEXT GeoJSON` para pintar polígono en fichas foral. |
 
 ## Reglas
 
