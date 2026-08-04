@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { readCatFile } from "./parser/catReader";
 import { isCommonElement } from "./parser/recordParser";
 import {
@@ -33,6 +34,7 @@ interface CliArgs {
   searchRefcat: string | null;
   load: boolean;
   dryRun: boolean;
+  onlyParcels: string | null;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -41,6 +43,7 @@ function parseArgs(argv: string[]): CliArgs {
   let searchRefcat: string | null = null;
   let load = false;
   let dryRun = false;
+  let onlyParcels: string | null = null;
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     if (a === "--search") {
@@ -50,17 +53,33 @@ function parseArgs(argv: string[]): CliArgs {
       load = true;
     } else if (a === "--dry-run") {
       dryRun = true;
+    } else if (a === "--only-parcels") {
+      onlyParcels = (rest[i + 1] ?? "").trim();
+      i++;
     } else if (!filePath) {
       filePath = a;
     }
   }
   if (!filePath) {
     console.error(
-      "Uso: tsx src/index.ts <ruta/al/archivo.CAT> [--search REFCAT] [--load [--dry-run]]",
+      "Uso: tsx src/index.ts <ruta/al/archivo.CAT> [--search REFCAT] [--load [--dry-run]] [--only-parcels <fichero>]",
     );
     process.exit(1);
   }
-  return { filePath, searchRefcat, load, dryRun };
+  return { filePath, searchRefcat, load, dryRun, onlyParcels };
+}
+
+// Ingesta filtrada: carga/reinserta SOLO estos parcel_ref (14 chars). Parsea
+// el .CAT completo pero limita lo que toca la BD → recalcular una muestra sin
+// reingestar todo el municipio.
+function loadOnlyParcelsSet(path: string): Set<string> {
+  const raw = readFileSync(path, "utf8");
+  const set = new Set<string>();
+  for (const line of raw.split(/\r?\n/)) {
+    const ref = line.trim().toUpperCase();
+    if (ref) set.add(ref.slice(0, 14));
+  }
+  return set;
 }
 
 function printTipologiasEdificio(tipo: BuildingTipologias, municipio: string, titulo: string): void {
@@ -88,7 +107,7 @@ function printTipologiasEdificio(tipo: BuildingTipologias, municipio: string, ti
           ? t.plantas.join(", ")
           : `${t.plantas[0]}..${t.plantas[t.plantas.length - 1]} (${t.plantas.length} niveles)`;
       console.log(
-        `     - Tipología ${t.nombre}: ${fmtNum(t.numUnidades)} unidades · ${t.m2Medio} m² (rango ${t.m2Min}-${t.m2Max}) · plantas ${plantasStr}`,
+        `     - Tipología ${t.nombre}: ${fmtNum(t.numUnidades)} unidades · ${t.m2Medio} m² privativa · ${t.m2MedioConstruida} m² construida · (rango ${t.m2Min}-${t.m2Max}) · plantas ${plantasStr}`,
       );
     }
   }
@@ -119,6 +138,7 @@ function buildRows(
         use_category: useCategory,
         typology_name: t.nombre,
         m2_avg: t.m2Medio,
+        m2_avg_construida: t.m2MedioConstruida,
         m2_min: t.m2Min,
         m2_max: t.m2Max,
         unit_count: t.numUnidades,
@@ -130,7 +150,8 @@ function buildRows(
 }
 
 async function main() {
-  const { filePath, searchRefcat, load, dryRun } = parseArgs(process.argv);
+  const { filePath, searchRefcat, load, dryRun, onlyParcels } = parseArgs(process.argv);
+  const onlyParcelsSet = onlyParcels ? loadOnlyParcelsSet(onlyParcels) : null;
 
   if (load) {
     console.log(
@@ -144,6 +165,7 @@ async function main() {
     console.log(`🔌 Supabase: ${process.env.SUPABASE_URL ?? "(no configurado)"}`);
   }
   if (searchRefcat) console.log(`🔍 Búsqueda: ${searchRefcat}`);
+  if (onlyParcelsSet) console.log(`🎯 Ingesta filtrada: ${fmtNum(onlyParcelsSet.size)} parcel_ref (${onlyParcels})`);
   console.log("⏳ Procesando...\n");
 
   const grouper = new BuildingGrouper();
@@ -211,6 +233,8 @@ async function main() {
   let tipologiasTotal = 0;
 
   for (const b of grouper.all()) {
+    // Ingesta filtrada: saltar edificios fuera de la muestra.
+    if (onlyParcelsSet && !onlyParcelsSet.has(b.refcatParcela)) continue;
     const tipo = tipologizarEdificio(b);
     tipologiasTotal += totalTipologias(tipo);
     if (tipo.totalUnidades < MIN_UNITS) {

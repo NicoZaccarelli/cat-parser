@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS building_typologies (
   use_category TEXT NOT NULL,
   typology_name TEXT NOT NULL,
   m2_avg INT NOT NULL,
+  -- Superficie media CONSTRUIDA (privativa + comunes imputados). Nullable:
+  -- filas anteriores a la reingesta / edificios sin comunes pueden no tenerla.
+  m2_avg_construida INT,
   m2_min INT NOT NULL,
   m2_max INT NOT NULL,
   unit_count INT NOT NULL,
@@ -54,6 +57,7 @@ SELECT
         'use_category', t.use_category,
         'typology_name', t.typology_name,
         'm2_avg', t.m2_avg,
+        'm2_avg_construida', t.m2_avg_construida,
         'm2_min', t.m2_min,
         'm2_max', t.m2_max,
         'unit_count', t.unit_count,

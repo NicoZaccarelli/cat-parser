@@ -20,6 +20,7 @@ export interface TypologyRow {
   use_category: string;
   typology_name: string;
   m2_avg: number;
+  m2_avg_construida: number;
   m2_min: number;
   m2_max: number;
   unit_count: number;

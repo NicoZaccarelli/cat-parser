@@ -60,6 +60,12 @@ export interface Unit {
   usoChar: string;
   planta: string;
   superficie: number;
+  // Superficie de elementos comunes YA imputada a este bien por coeficiente
+  // (pos 98-104 del registro 14). Necesaria para m2 construida = privativa +
+  // comunes (base del IBI). No afecta a `superficie` (privativa) ni a la
+  // agrupación de tipologías. Opcional: los loaders forales no la aportan
+  // (allí m2Construida = privativa), solo la vía DGC la rellena.
+  superficieComunes?: number;
 }
 
 export interface Building {
@@ -77,6 +83,9 @@ export interface Tipologia {
   nombre: string;
   numUnidades: number;
   m2Medio: number;
+  // Media de superficie CONSTRUIDA (privativa + comunes imputados) del grupo.
+  // Derivada sobre los mismos grupos que m2Medio; no cambia la agrupación.
+  m2MedioConstruida: number;
   m2Min: number;
   m2Max: number;
   plantas: string[];

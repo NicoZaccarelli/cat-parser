@@ -80,6 +80,7 @@ export class BuildingGrouper {
       usoChar: intern(usoChar),
       planta: intern(r.planta || "-"),
       superficie: r.superficieTotal,
+      superficieComunes: r.superficieComunes,
     };
     b.units.push(unit);
     if (r.anoAntiguedad) {
