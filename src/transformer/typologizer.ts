@@ -38,7 +38,17 @@ function generarTipologias(units: Unit[]): Tipologia[] {
     const superficies = grupo.map((u) => u.superficie);
     const sum = superficies.reduce((a, b) => a + b, 0);
     // Media construida = privativa + comunes imputados, sobre el MISMO grupo
-    // (agrupado por privativa). Es la base para el VC/IBI.
+    // (agrupado por privativa).
+    //
+    // ⚠️ DORMIDO en Madrid capital (verificado 2026-08-04). El CAT masivo de la
+    // DGC NO imputa comunes por bien: el registro tipo 14, posiciones 98-104
+    // (superficieComunes), viene a CERO en toda la capital (fichero 28900U). Los
+    // elementos comunes existen como filas tipo-14 aparte a nivel de edificio,
+    // no repartidos por vivienda. Por eso aquí m2MedioConstruida == m2Medio para
+    // Madrid, y el "IBI estimado" de la app NO usa este campo: calibra el ratio
+    // comunes/privativa en runtime vía DNPRC por bien (Sede/DNPRC sí imputa por
+    // coeficiente de participación). Se conserva el cálculo porque otras
+    // provincias o los forales pueden sí traer superficieComunes > 0.
     const sumConstruida = grupo.reduce(
       (a, u) => a + u.superficie + (u.superficieComunes ?? 0),
       0,
