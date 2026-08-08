@@ -59,7 +59,20 @@ export class BuildingGrouper {
   // Índice de unidades ya emitidas, por parcela → `${bienInmueble}|${usoChar}`.
   // Guarda REFERENCIAS a los objetos de `building.units`, así que acumular
   // superficie aquí muta la unidad ya empujada. Ver `handleConstruccion`.
-  private unitIndex = new Map<string, Map<string, Unit>>();
+  //
+  // ⚠️ Es un buffer de UNA SOLA parcela, la que se está leyendo. Mantener un
+  // índice por parcela para todo el fichero reventaba el heap: Madrid capital
+  // tiene ~700.000 parcelas y 2,28 millones de bienes, y un Map anidado por
+  // parcela agotaba los 4 GB antes de llegar a la mitad del fichero.
+  //
+  // Se apoya en que el CAT agrupa los registros por parcela: al cambiar de
+  // parcela se vuelca el buffer y se libera. `stats.parcelasReabiertas` vigila
+  // ese supuesto — si alguna parcela reaparece tras haberse volcado, el gate
+  // aborta, porque sus filas se habrían contado dos veces.
+  private curParcela: string | null = null;
+  private curUnits = new Map<string, Unit>();
+  private curBienes = new Map<string, { construida: number; coef: number }>();
+  private curComunes = 0;
 
   /**
    * Contadores de diagnóstico para el gate de validación por provincia.
@@ -86,20 +99,29 @@ export class BuildingGrouper {
     // comprobación más directa de que 442-451 es superficie construida.
     sumaParcelas: 0,
     sumaParcelasFuera: 0, // desviación > 5%
+    // Parcelas que reaparecen tras haberse volcado: rompería el supuesto de
+    // agrupación por parcela del fichero. El gate aborta si no es 0.
+    parcelasReabiertas: 0,
   };
 
-  // Superficie de elementos comunes por parcela: filas de construcción sin
-  // bien inmueble asignado. Sirve de base para imputar por coeficiente
-  // cuando el registro 15 no trae superficie construida.
-  private comunesParcela = new Map<string, number>();
-
-  // Datos del registro 15 por parcela → cargo del bien.
-  private bienes = new Map<
-    string,
-    Map<string, { construida: number; coef: number }>
-  >();
-
   private finalized = false;
+
+  // Cambia de parcela activa, volcando la anterior. Todos los handlers pasan
+  // por aquí antes de tocar el buffer.
+  private switchParcela(refcat: string): void {
+    if (this.curParcela === refcat) return;
+    this.flushParcela();
+    const previo = this.buildings.get(refcat);
+    if (previo && previo.units.length > 0) {
+      // Ya habíamos volcado esta parcela: el fichero no viene agrupado y las
+      // filas nuevas crearían unidades duplicadas en vez de acumularse.
+      this.stats.parcelasReabiertas++;
+    }
+    this.curParcela = refcat;
+    this.curUnits = new Map();
+    this.curBienes = new Map();
+    this.curComunes = 0;
+  }
 
   private ensure(refcat: string): Building {
     let b = this.buildings.get(refcat);
@@ -142,18 +164,15 @@ export class BuildingGrouper {
   // registros dentro del fichero no está garantizado.
   private handleBienInmueble(r: BienInmuebleRecord): void {
     if (!r.cargoLocal) return;
-    let m = this.bienes.get(r.refcatParcela);
-    if (!m) {
-      m = new Map();
-      this.bienes.set(r.refcatParcela, m);
-    }
-    m.set(r.cargoLocal, {
+    this.switchParcela(r.refcatParcela);
+    this.curBienes.set(r.cargoLocal, {
       construida: r.superficieConstruida,
       coef: r.coeficienteParticipacion,
     });
   }
 
   private handleParcela(r: ParcelaRecord): void {
+    this.switchParcela(r.refcatParcela);
     const b = this.ensure(r.refcatParcela);
     if (!b.direccion) {
       const sigla = r.siglaVia ? `${r.siglaVia} ` : "";
@@ -166,6 +185,7 @@ export class BuildingGrouper {
   }
 
   private handleUC(r: UnidadConstructivaRecord): void {
+    this.switchParcela(r.refcatParcela);
     const b = this.ensure(r.refcatParcela);
     if (r.anoConstruccion) {
       if (b.anoConstruccion == null || r.anoConstruccion < b.anoConstruccion) {
@@ -196,6 +216,7 @@ export class BuildingGrouper {
   private handleConstruccion(r: ConstruccionRecord): void {
     if (r.superficieTotal <= 0) return;
     this.stats.rowsTotal++;
+    this.switchParcela(r.refcatParcela);
 
     const b = this.ensure(r.refcatParcela);
 
@@ -209,23 +230,15 @@ export class BuildingGrouper {
       this.stats.rowsSinBien++;
       const u = r.uso.trim().charAt(0).toUpperCase();
       if (u === "V") this.stats.rowsSinBienVivienda++;
-      this.comunesParcela.set(
-        r.refcatParcela,
-        (this.comunesParcela.get(r.refcatParcela) ?? 0) + r.superficieTotal,
-      );
+      this.curComunes += r.superficieTotal;
       return;
     }
 
     const trimmedUso = r.uso.trim();
     const usoChar = trimmedUso ? trimmedUso.charAt(0).toUpperCase() : "?";
 
-    let byKey = this.unitIndex.get(r.refcatParcela);
-    if (!byKey) {
-      byKey = new Map<string, Unit>();
-      this.unitIndex.set(r.refcatParcela, byKey);
-    }
     const key = `${r.bienInmueble}|${usoChar}`;
-    const existing = byKey.get(key);
+    const existing = this.curUnits.get(key);
 
     if (existing) {
       // Mismo bien y mismo uso → es otro recinto del MISMO inmueble.
@@ -248,7 +261,7 @@ export class BuildingGrouper {
       superficie: r.superficieTotal,
       superficieComunes: r.superficieComunes,
     };
-    byKey.set(key, unit);
+    this.curUnits.set(key, unit);
     b.units.push(unit);
   }
 
@@ -272,19 +285,18 @@ export class BuildingGrouper {
    * identidad; para RD MATI 45 (vivienda + almacén bajo el mismo bien) evita
    * que la vivienda absorba los comunes del anexo.
    *
-   * Idempotente: `all()`, `find()` y `topBySize()` la invocan.
+   * Se ejecuta al cerrar cada parcela, no al final del fichero: mantener el
+   * índice de todas las parcelas en memoria agotaba el heap en Madrid capital.
    */
-  finalize(): void {
-    if (this.finalized) return;
-    this.finalized = true;
-
-    for (const [refcat, byKey] of this.unitIndex) {
-      const bienesParcela = this.bienes.get(refcat);
-      const comunes = this.comunesParcela.get(refcat) ?? 0;
+  private flushParcela(): void {
+    if (this.curParcela === null) return;
+    {
+      const bienesParcela = this.curBienes;
+      const comunes = this.curComunes;
 
       // Agrupa las unidades por bien (la clave es `${bien}|${uso}`).
       const porBien = new Map<string, Unit[]>();
-      for (const [key, unit] of byKey) {
+      for (const [key, unit] of this.curUnits) {
         const bien = key.slice(0, key.indexOf("|"));
         const arr = porBien.get(bien);
         if (arr) arr.push(unit);
@@ -292,7 +304,7 @@ export class BuildingGrouper {
       }
 
       // Control del coeficiente a nivel parcela (señal para el gate).
-      if (bienesParcela && bienesParcela.size >= 2) {
+      if (bienesParcela.size >= 2) {
         let sumCoef = 0;
         for (const v of bienesParcela.values()) sumCoef += v.coef;
         if (sumCoef >= 9900 && sumCoef <= 10150) this.stats.coefParcelasOk++;
@@ -306,7 +318,7 @@ export class BuildingGrouper {
       for (const [bien, units] of porBien) {
         const priv = units.reduce((s, u) => s + u.superficie, 0);
         if (priv <= 0) continue;
-        const info = bienesParcela?.get(bien);
+        const info = bienesParcela.get(bien);
         sumPrivParcela += priv;
         if (info && info.construida > 0) sumConstruidaT15 += info.construida;
 
@@ -352,6 +364,20 @@ export class BuildingGrouper {
         }
       }
     }
+  }
+
+  /**
+   * Cierra la última parcela del fichero. Idempotente; la invocan `all()`,
+   * `find()` y `topBySize()`, así que ningún consumidor puede olvidarla.
+   */
+  finalize(): void {
+    if (this.finalized) return;
+    this.finalized = true;
+    this.flushParcela();
+    this.curParcela = null;
+    this.curUnits = new Map();
+    this.curBienes = new Map();
+    this.curComunes = 0;
   }
 
   size(): number {

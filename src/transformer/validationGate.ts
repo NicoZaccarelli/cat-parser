@@ -95,6 +95,13 @@ export function runValidationGate(
         `(máximo ${thresholds.maxPctSumaFuera}%) — las posiciones 442-451 no son superficie construida`,
     );
   }
+  if (s.parcelasReabiertas > 0) {
+    errores.push(
+      `${s.parcelasReabiertas.toLocaleString("es-ES")} parcelas reaparecen tras cerrarse: ` +
+        `el fichero no viene agrupado por parcela y el agrupamiento por bien ` +
+        `habría duplicado unidades`,
+    );
+  }
   if (bienesTotal > 0 && pctCobertura < thresholds.minPctCoberturaT15) {
     errores.push(
       `cobertura de superficie construida en el registro 15 de solo ${f1(pctCobertura)}% ` +
@@ -129,6 +136,7 @@ export function runValidationGate(
       "construida sin dato (privativa)": s.construidaSinDato.toLocaleString("es-ES"),
       "construida descartada por ratio": `${s.construidaClampeada.toLocaleString("es-ES")} (${f2(pctRatioFuera)}%)`,
       "ratio medio construida/privativa": f2(ratioMedio),
+      "parcelas reabiertas (debe ser 0)": s.parcelasReabiertas.toLocaleString("es-ES"),
       "Σconstruida ≉ priv+comunes": `${s.sumaParcelasFuera.toLocaleString("es-ES")} / ${s.sumaParcelas.toLocaleString("es-ES")} parcelas (${f1(pctSumaFuera)}%)`,
       "Σcoef ≠ 100% (solo aviso)": `${s.coefParcelasFuera.toLocaleString("es-ES")} / ${(s.coefParcelasOk + s.coefParcelasFuera).toLocaleString("es-ES")} parcelas (${f1(pctCoefFuera)}%)`,
     },
