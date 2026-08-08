@@ -249,6 +249,17 @@ async function main() {
   let descartadosPorTamano = 0;
   let tipologiasTotal = 0;
 
+  // Parcelas leídas EN ESTA CORRIDA que caen por debajo del umbral. Sus filas
+  // antiguas hay que borrarlas, no solo dejar de escribirlas: al agrupar por
+  // bien inmueble muchos edificios falsos se quedan en 1-2 viviendas, y sin el
+  // borrado la app seguiría sirviendo el desglose viejo y erróneo (CL Puerto
+  // 47, La Acebeda: 4 viviendas de 66 m² que en realidad son 2 de 134 y 128).
+  //
+  // ⚠️ El conjunto se deriva SIEMPRE de lo leído en el fichero, nunca de una
+  // consulta a la base, para que no pueda alcanzar a una parcela que esta
+  // corrida no ha procesado. Con --only-parcels queda acotado al filtro.
+  const refsBajoUmbral: string[] = [];
+
   for (const b of grouper.all()) {
     // Ingesta filtrada: saltar edificios fuera de la muestra.
     if (onlyParcelsSet && !onlyParcelsSet.has(b.refcatParcela)) continue;
@@ -256,6 +267,7 @@ async function main() {
     tipologiasTotal += totalTipologias(tipo);
     if (tipo.totalUnidades < MIN_UNITS) {
       descartadosPorTamano++;
+      refsBajoUmbral.push(b.refcatParcela);
       continue;
     }
     const rows = buildRows(b, tipo, sourceDate);
@@ -265,6 +277,7 @@ async function main() {
 
   console.log("\n🔍 Filtros aplicados:");
   console.log(`  - Edificios con <${MIN_UNITS} unidades descartados: ${fmtNum(descartadosPorTamano)}`);
+  console.log(`  - Parcelas a BORRAR por caer bajo el umbral: ${fmtNum(refsBajoUmbral.length)}`);
   console.log(`  - Edificios a cargar: ${fmtNum(buildingsRows.length)}`);
   console.log(`  - Tipologías a cargar: ${fmtNum(typologiesRows.length)}`);
   console.log(`\n🧮 Tipologías generadas totales (pre-filtro): ${fmtNum(tipologiasTotal)}`);
@@ -280,16 +293,25 @@ async function main() {
       console.log("\n📤 Cargando a Supabase...");
       const loadStart = Date.now();
 
-      const parcelRefs = buildingsRows.map((r) => r.parcel_ref);
-      console.log(`  🗑️  Limpiando tipologías existentes para ${fmtNum(parcelRefs.length)} edificios...`);
-      await loader.clearTypologiesFor(parcelRefs);
+      // Primero el borrado de las que dejan de ser edificio con desglose: si
+      // la corrida se corta después, esas parcelas quedan sin caché (la app
+      // cae al flujo DNPRC), que es el estado correcto para ellas.
+      if (refsBajoUmbral.length > 0) {
+        console.log(
+          `  🗑️  Borrando ${fmtNum(refsBajoUmbral.length)} parcelas que caen bajo el umbral de ${MIN_UNITS} unidades...`,
+        );
+        const dRes = await loader.deleteBuildings(refsBajoUmbral);
+        console.log(`  ✅ ${fmtNum(dRes.deleted)} parcelas borradas`);
+      }
 
       const bRes = await loader.loadBuildings(buildingsRows);
       console.log(
         `  ✅ ${fmtNum(bRes.inserted)} edificios cargados${bRes.errors ? ` (${fmtNum(bRes.errors)} errores)` : ""}`,
       );
 
-      const tRes = await loader.loadTypologies(typologiesRows);
+      // Borrado + inserción lote a lote: la ventana de inconsistencia es de un
+      // lote, no del fichero entero. Ver replaceTypologies.
+      const tRes = await loader.replaceTypologies(typologiesRows);
       console.log(
         `  ✅ ${fmtNum(tRes.inserted)} tipologías cargadas${tRes.errors ? ` (${fmtNum(tRes.errors)} errores)` : ""}`,
       );
