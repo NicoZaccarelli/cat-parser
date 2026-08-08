@@ -82,6 +82,10 @@ export class BuildingGrouper {
     ratioN: 0,
     coefParcelasOk: 0, // parcelas con ≥2 bienes cuya Σ coef ∈ [9900, 10150]
     coefParcelasFuera: 0,
+    // Σ construida de los bienes vs privativa + comunes, por parcela. Es la
+    // comprobación más directa de que 442-451 es superficie construida.
+    sumaParcelas: 0,
+    sumaParcelasFuera: 0, // desviación > 5%
   };
 
   // Superficie de elementos comunes por parcela: filas de construcción sin
@@ -295,10 +299,16 @@ export class BuildingGrouper {
         else this.stats.coefParcelasFuera++;
       }
 
+      // Acumuladores para el contraste Σconstruida ≈ privativa + comunes.
+      let sumConstruidaT15 = 0;
+      let sumPrivParcela = 0;
+
       for (const [bien, units] of porBien) {
         const priv = units.reduce((s, u) => s + u.superficie, 0);
         if (priv <= 0) continue;
         const info = bienesParcela?.get(bien);
+        sumPrivParcela += priv;
+        if (info && info.construida > 0) sumConstruidaT15 += info.construida;
 
         let construida: number;
         if (info && info.construida > 0) {
@@ -327,6 +337,18 @@ export class BuildingGrouper {
           const share = (construida * u.superficie) / priv;
           const extra = Math.max(0, Math.round(share - u.superficie));
           u.superficieComunes = extra;
+        }
+      }
+
+      // Los comunes deberían quedar repartidos entre los bienes, así que la
+      // suma de sus superficies construidas tiene que aproximar a la suma de
+      // privativas más los comunes de la parcela. Una desviación sistemática
+      // significa que 442-451 no es lo que creemos, y el gate aborta.
+      if (sumConstruidaT15 > 0 && sumPrivParcela > 0) {
+        this.stats.sumaParcelas++;
+        const esperado = sumPrivParcela + comunes;
+        if (Math.abs(sumConstruidaT15 - esperado) / esperado > 0.05) {
+          this.stats.sumaParcelasFuera++;
         }
       }
     }

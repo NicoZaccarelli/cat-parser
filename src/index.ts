@@ -9,6 +9,7 @@ import {
 } from "./loader/supabase";
 import type { Building, BuildingTipologias } from "./parser/types";
 import { BuildingGrouper } from "./transformer/grouper";
+import { printGateResult, runValidationGate } from "./transformer/validationGate";
 import {
   compactFloors,
   tipologizarEdificio,
@@ -200,6 +201,22 @@ async function main() {
   console.log(`  - Reparto superficies (16): ${fmtNum(stats.type16)}`);
   console.log(`  - Edificios (parcelas con unidades): ${fmtNum(grouper.size())}`);
   console.log(`  - Fecha del archivo: ${sourceDate}`);
+
+  // Gate de validación del layout. Corre ANTES de construir filas y de
+  // escribir nada: si el fichero no cuadra con el formato verificado, la
+  // corrida aborta en vez de dejar la base a medias con datos plausibles y
+  // falsos. Ver validationGate.ts para los criterios y por qué la suma de
+  // coeficientes es solo un aviso.
+  const gate = runValidationGate(grouper);
+  printGateResult(gate);
+  if (!gate.passed) {
+    console.error(
+      "\n⛔ Corrida abortada: el layout de este fichero no coincide con el " +
+        "verificado. No se ha escrito nada en Supabase.",
+    );
+    process.exitCode = 2;
+    return;
+  }
 
   let comunesTotal = 0;
   let comunesVivienda = 0;
