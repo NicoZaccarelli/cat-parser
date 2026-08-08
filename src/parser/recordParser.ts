@@ -85,6 +85,7 @@ function parseConstruccion(line: string): ConstruccionRecord {
     type: "14",
     refcatParcela: slice(line, 31, 44).trim(),
     cargoUC: slice(line, 45, 48).trim(),
+    bienInmueble: slice(line, 51, 54).trim(),
     bloque: slice(line, 59, 62).trim(),
     escalera: slice(line, 63, 64).trim(),
     planta: slice(line, 65, 67).trim(),

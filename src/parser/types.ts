@@ -30,7 +30,30 @@ export interface UnidadConstructivaRecord {
 export interface ConstruccionRecord {
   type: "14";
   refcatParcela: string;
+  /**
+   * Posiciones 45-48. Número de orden del ELEMENTO DE CONSTRUCCIÓN, único
+   * por fila dentro de la parcela.
+   *
+   * ⚠️ NO identifica el bien inmueble, pese al nombre. En el registro 15 ese
+   * mismo rango sí es el cargo del bien (forma parte de la RC de 20), y esa
+   * coincidencia de posiciones es lo que indujo el error original. Para
+   * agrupar por bien inmueble usa `bienInmueble` (51-54).
+   */
   cargoUC: string;
+  /**
+   * Posiciones 51-54. Número de orden del BIEN INMUEBLE fiscal al que
+   * pertenece esta fila de construcción. Varias filas comparten valor cuando
+   * el bien ocupa más de un recinto: dúplex (una fila por planta), chalets
+   * (baja + primera + sótano), viviendas con dos recintos en la misma planta.
+   *
+   * Viene VACÍO en las filas de elementos comunes, que no pertenecen a ningún
+   * bien: `BuildingGrouper` las descarta en vez de contarlas como unidades.
+   *
+   * Verificado contra el registro 15 en 136.259 parcelas de Madrid capital:
+   * el 100% de los valores no vacíos existe como cargo de un tipo-15 de la
+   * misma parcela.
+   */
+  bienInmueble: string;
   bloque: string;
   escalera: string;
   planta: string;
