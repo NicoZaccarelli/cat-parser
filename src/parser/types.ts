@@ -69,7 +69,31 @@ export interface BienInmuebleRecord {
   type: "15";
   refcatParcela: string;
   refcatCompleta: string;
+  /** Posiciones 45-48. Número de orden del bien inmueble; casa con
+   *  `ConstruccionRecord.bienInmueble` (51-54 del registro 14). */
   cargoLocal: string;
+  /**
+   * Posiciones 442-451. Superficie CONSTRUIDA del bien: privativa más los
+   * elementos comunes imputados por coeficiente de participación. Es el
+   * número que muestra la Sede Electrónica del Catastro.
+   *
+   * ⚠️ Esta es la fuente de `m2AvgConstruida`, SUSTITUYE a las posiciones
+   * 98-104 del registro 14 (`superficieComunes`), que en el CAT masivo
+   * vienen a CERO —verificado en Madrid capital, fichero 28900U— y dejaban
+   * el campo muerto. No vuelvas a alimentarlo de ahí.
+   *
+   * Cobertura medida: 99,47% de los registros 15 en Madrid capital, 91,68%
+   * en Manacor. Cuando viene a cero se cae al coeficiente (ver
+   * `BuildingGrouper.finalize`).
+   */
+  superficieConstruida: number;
+  /**
+   * Posiciones 462-466. Coeficiente de participación del bien en los
+   * elementos comunes, entero con 2 decimales implícitos: 329 = 3,29%.
+   * La suma por parcela da 10000 (100,00%) — comprobado en el 73% de las
+   * parcelas de Madrid con ≥2 bienes; el resto queda dentro del redondeo.
+   */
+  coeficienteParticipacion: number;
 }
 
 export type CatRecord =

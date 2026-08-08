@@ -104,6 +104,8 @@ function parseBienInmueble(line: string): BienInmuebleRecord {
     refcatParcela: slice(line, 31, 44).trim(),
     refcatCompleta: slice(line, 31, 50).trim(),
     cargoLocal: slice(line, 45, 48).trim(),
+    superficieConstruida: parseIntSafe(slice(line, 442, 451)),
+    coeficienteParticipacion: parseIntSafe(slice(line, 462, 466)),
   };
 }
 

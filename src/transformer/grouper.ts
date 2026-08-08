@@ -1,4 +1,5 @@
 import type {
+  BienInmuebleRecord,
   Building,
   CatRecord,
   ConstruccionRecord,
@@ -70,8 +71,31 @@ export class BuildingGrouper {
   readonly stats = {
     rowsTotal: 0,
     rowsSinBien: 0,
+    rowsSinBienVivienda: 0, // subconjunto con uso V: "viviendas" inventadas
     rowsAgrupadas: 0, // filas que se sumaron a una unidad ya existente
+    // Procedencia de m2 construida, para el gate de validación.
+    construidaDeT15: 0,
+    construidaImputadaPorCoef: 0,
+    construidaSinDato: 0,
+    construidaClampeada: 0, // t15 < privativa → se ignoró (ratio < 1)
+    ratioSum: 0, // Σ construida/privativa sobre las que vienen de t15
+    ratioN: 0,
+    coefParcelasOk: 0, // parcelas con ≥2 bienes cuya Σ coef ∈ [9900, 10150]
+    coefParcelasFuera: 0,
   };
+
+  // Superficie de elementos comunes por parcela: filas de construcción sin
+  // bien inmueble asignado. Sirve de base para imputar por coeficiente
+  // cuando el registro 15 no trae superficie construida.
+  private comunesParcela = new Map<string, number>();
+
+  // Datos del registro 15 por parcela → cargo del bien.
+  private bienes = new Map<
+    string,
+    Map<string, { construida: number; coef: number }>
+  >();
+
+  private finalized = false;
 
   private ensure(refcat: string): Building {
     let b = this.buildings.get(refcat);
@@ -102,7 +126,27 @@ export class BuildingGrouper {
       case "14":
         this.handleConstruccion(record);
         break;
+      case "15":
+        this.handleBienInmueble(record);
+        break;
     }
+  }
+
+  // El registro 15 aporta la superficie CONSTRUIDA del bien (privativa +
+  // comunes imputados) y su coeficiente de participación. Se guarda tal cual
+  // y se reparte entre las unidades en `finalize()`, porque el orden de los
+  // registros dentro del fichero no está garantizado.
+  private handleBienInmueble(r: BienInmuebleRecord): void {
+    if (!r.cargoLocal) return;
+    let m = this.bienes.get(r.refcatParcela);
+    if (!m) {
+      m = new Map();
+      this.bienes.set(r.refcatParcela, m);
+    }
+    m.set(r.cargoLocal, {
+      construida: r.superficieConstruida,
+      coef: r.coeficienteParticipacion,
+    });
   }
 
   private handleParcela(r: ParcelaRecord): void {
@@ -159,6 +203,12 @@ export class BuildingGrouper {
 
     if (!r.bienInmueble) {
       this.stats.rowsSinBien++;
+      const u = r.uso.trim().charAt(0).toUpperCase();
+      if (u === "V") this.stats.rowsSinBienVivienda++;
+      this.comunesParcela.set(
+        r.refcatParcela,
+        (this.comunesParcela.get(r.refcatParcela) ?? 0) + r.superficieTotal,
+      );
       return;
     }
 
@@ -198,19 +248,106 @@ export class BuildingGrouper {
     b.units.push(unit);
   }
 
+  /**
+   * Reparte la superficie construida del registro 15 entre las unidades de
+   * cada bien y la deja en `Unit.superficieComunes`, que es lo que suma el
+   * tipologizador para `m2MedioConstruida`.
+   *
+   * ⚠️ ORIGEN DEL DATO: registro 15, posiciones 442-451. SUSTITUYE a las
+   * posiciones 98-104 del registro 14, que en el CAT masivo vienen a cero y
+   * dejaban `m2AvgConstruida` muerta. No vuelvas a alimentarlo de ahí.
+   *
+   * Cascada, en este orden:
+   *   1. Superficie construida del registro 15, si es > 0.
+   *   2. Imputación por coeficiente: privativa + comunes_parcela × coef,
+   *      donde comunes_parcela es la suma de las filas sin bien inmueble.
+   *   3. Privativa a secas (comunes = 0).
+   *
+   * El reparto dentro de un bien con varios recintos es proporcional a la
+   * superficie privativa de cada uno. Para un bien de un solo uso es la
+   * identidad; para RD MATI 45 (vivienda + almacén bajo el mismo bien) evita
+   * que la vivienda absorba los comunes del anexo.
+   *
+   * Idempotente: `all()`, `find()` y `topBySize()` la invocan.
+   */
+  finalize(): void {
+    if (this.finalized) return;
+    this.finalized = true;
+
+    for (const [refcat, byKey] of this.unitIndex) {
+      const bienesParcela = this.bienes.get(refcat);
+      const comunes = this.comunesParcela.get(refcat) ?? 0;
+
+      // Agrupa las unidades por bien (la clave es `${bien}|${uso}`).
+      const porBien = new Map<string, Unit[]>();
+      for (const [key, unit] of byKey) {
+        const bien = key.slice(0, key.indexOf("|"));
+        const arr = porBien.get(bien);
+        if (arr) arr.push(unit);
+        else porBien.set(bien, [unit]);
+      }
+
+      // Control del coeficiente a nivel parcela (señal para el gate).
+      if (bienesParcela && bienesParcela.size >= 2) {
+        let sumCoef = 0;
+        for (const v of bienesParcela.values()) sumCoef += v.coef;
+        if (sumCoef >= 9900 && sumCoef <= 10150) this.stats.coefParcelasOk++;
+        else this.stats.coefParcelasFuera++;
+      }
+
+      for (const [bien, units] of porBien) {
+        const priv = units.reduce((s, u) => s + u.superficie, 0);
+        if (priv <= 0) continue;
+        const info = bienesParcela?.get(bien);
+
+        let construida: number;
+        if (info && info.construida > 0) {
+          if (info.construida < priv) {
+            // Menos construida que privativa no tiene sentido físico.
+            // Se ignora el dato en vez de generar comunes negativos; el
+            // gate contabiliza estos casos.
+            this.stats.construidaClampeada++;
+            construida = priv;
+          } else {
+            construida = info.construida;
+            this.stats.construidaDeT15++;
+            this.stats.ratioSum += construida / priv;
+            this.stats.ratioN++;
+          }
+        } else if (info && info.coef > 0 && comunes > 0) {
+          construida = priv + (comunes * info.coef) / 10000;
+          this.stats.construidaImputadaPorCoef++;
+        } else {
+          construida = priv;
+          this.stats.construidaSinDato++;
+        }
+
+        // Reparto proporcional a la privativa de cada recinto.
+        for (const u of units) {
+          const share = (construida * u.superficie) / priv;
+          const extra = Math.max(0, Math.round(share - u.superficie));
+          u.superficieComunes = extra;
+        }
+      }
+    }
+  }
+
   size(): number {
     return this.buildings.size;
   }
 
   all(): IterableIterator<Building> {
+    this.finalize();
     return this.buildings.values();
   }
 
   find(refcat: string): Building | undefined {
+    this.finalize();
     return this.buildings.get(refcat);
   }
 
   topBySize(n: number): Building[] {
+    this.finalize();
     const arr: Building[] = [];
     for (const b of this.buildings.values()) {
       if (b.units.length > 0) arr.push(b);
