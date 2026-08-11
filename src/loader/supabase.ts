@@ -240,50 +240,63 @@ export class SupabaseLoader {
   }
 
 
-  async countBuildings(): Promise<number> {
-    if (this.dryRun) return 0;
+  /**
+   * Censo global de la base. CARO: es un COUNT sobre la tabla entera.
+   *
+   * ⚠️ NO LO LLAMES POR MUNICIPIO. Estaba en el bloque de validación que
+   * corría tras CADA fichero, y medido el 11-08-2026 costaba ~0,7 s en
+   * `buildings` (7,1 M filas) y ~8,1 s en `building_typologies` (25,5 M),
+   * donde además expiraba SIEMPRE con "canceling statement due to statement
+   * timeout". Con 8.393 municipios eso son ~21 horas de una corrida nacional
+   * de 94, gastadas en un número que la mayoría de las veces ni llegaba.
+   *
+   * Por eso `exact` es opcional y por defecto se usa el recuento ESTIMADO del
+   * planificador, que no escanea la tabla. Para un censo de control basta.
+   */
+  async census(
+    tabla: "buildings" | "building_typologies",
+    exact = false,
+  ): Promise<{ n: number; estimado: boolean }> {
+    if (this.dryRun) return { n: 0, estimado: false };
     const client = this.requireClient();
     const { count, error } = await client
-      .from("buildings")
-      .select("*", { count: "exact", head: true });
+      .from(tabla)
+      .select("*", { count: exact ? "exact" : "estimated", head: true });
     if (error) {
-      console.error(`  ⚠️  Error contando buildings: ${error.message}`);
-      return 0;
+      console.error(`  ⚠️  Error contando ${tabla}: ${error.message}`);
+      return { n: 0, estimado: !exact };
     }
-    return count ?? 0;
+    return { n: count ?? 0, estimado: !exact };
   }
 
-  async countTypologies(): Promise<number> {
-    if (this.dryRun) return 0;
-    const client = this.requireClient();
-    const { count, error } = await client
-      .from("building_typologies")
-      .select("*", { count: "exact", head: true });
-    if (error) {
-      console.error(`  ⚠️  Error contando tipologías: ${error.message}`);
-      return 0;
-    }
-    return count ?? 0;
-  }
-
-  async sampleBuilding(): Promise<Record<string, unknown> | null> {
+  /**
+   * Lee de vuelta un edificio CONCRETO recién escrito, por su parcel_ref.
+   *
+   * Sustituye al `sampleBuilding()` anterior, que elegía un offset aleatorio
+   * sobre 7,1 M filas de la vista `buildings_full`. Medido: 5,5 s con offset
+   * 12.345 y expirado (HTTP 500) a partir de ~3,5 M. Un diagnóstico que
+   * expira no diagnostica nada, y además tampoco comprobaba lo que
+   * importaba: una fila al azar de otra provincia no dice si ESTA carga
+   * escribió bien.
+   *
+   * Ahora la consulta va por clave primaria —instantánea— y verifica el
+   * viaje de ida y vuelta de un dato que acabamos de insertar.
+   */
+  async readBackBuilding(
+    parcelRef: string,
+  ): Promise<Record<string, unknown> | null> {
     if (this.dryRun) return null;
     const client = this.requireClient();
-    const { count } = await client
-      .from("buildings")
-      .select("*", { count: "exact", head: true });
-    const total = count ?? 0;
-    if (total === 0) return null;
-    const offset = Math.floor(Math.random() * total);
     const { data, error } = await client
       .from("buildings_full")
       .select("*")
-      .range(offset, offset);
+      .eq("parcel_ref", parcelRef)
+      .maybeSingle();
     if (error) {
-      console.error(`  ⚠️  Error sample: ${error.message}`);
+      console.error(`  ⚠️  Error releyendo ${parcelRef}: ${error.message}`);
       return null;
     }
-    return data?.[0] ?? null;
+    return data ?? null;
   }
 }
 

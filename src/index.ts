@@ -36,6 +36,13 @@ interface CliArgs {
   load: boolean;
   dryRun: boolean;
   onlyParcels: string | null;
+  /**
+   * Censo global de la base al terminar. Es CARO (COUNT sobre tablas de
+   * millones de filas), así que se pide explícitamente y se lanza una vez
+   * por provincia, no una por municipio. Ver el comentario de `census()` en
+   * loader/supabase.ts para el porqué.
+   */
+  census: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -45,6 +52,7 @@ function parseArgs(argv: string[]): CliArgs {
   let load = false;
   let dryRun = false;
   let onlyParcels: string | null = null;
+  let census = false;
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     if (a === "--search") {
@@ -54,6 +62,8 @@ function parseArgs(argv: string[]): CliArgs {
       load = true;
     } else if (a === "--dry-run") {
       dryRun = true;
+    } else if (a === "--census") {
+      census = true;
     } else if (a === "--only-parcels") {
       onlyParcels = (rest[i + 1] ?? "").trim();
       i++;
@@ -63,11 +73,11 @@ function parseArgs(argv: string[]): CliArgs {
   }
   if (!filePath) {
     console.error(
-      "Uso: tsx src/index.ts <ruta/al/archivo.CAT> [--search REFCAT] [--load [--dry-run]] [--only-parcels <fichero>]",
+      "Uso: tsx src/index.ts <ruta/al/archivo.CAT> [--search REFCAT] [--load [--dry-run]] [--only-parcels <fichero>] [--census]",
     );
     process.exit(1);
   }
-  return { filePath, searchRefcat, load, dryRun, onlyParcels };
+  return { filePath, searchRefcat, load, dryRun, onlyParcels, census };
 }
 
 // Ingesta filtrada: carga/reinserta SOLO estos parcel_ref (14 chars). Parsea
@@ -151,7 +161,7 @@ function buildRows(
 }
 
 async function main() {
-  const { filePath, searchRefcat, load, dryRun, onlyParcels } = parseArgs(process.argv);
+  const { filePath, searchRefcat, load, dryRun, onlyParcels, census } = parseArgs(process.argv);
   const onlyParcelsSet = onlyParcels ? loadOnlyParcelsSet(onlyParcels) : null;
 
   if (load) {
@@ -318,36 +328,66 @@ async function main() {
 
       console.log(`  ⏱️  Tiempo carga: ${fmtSeconds(Date.now() - loadStart)}`);
 
-      console.log("\n🔬 Validación en Supabase:");
-      const [bCount, tCount] = await Promise.all([
-        loader.countBuildings(),
-        loader.countTypologies(),
-      ]);
-      console.log(`  - Edificios en BD: ${fmtNum(bCount)}`);
-      console.log(`  - Tipologías en BD: ${fmtNum(tCount)}`);
-
-      const sample = await loader.sampleBuilding();
-      if (sample) {
-        console.log("\n  📋 Sample edificio aleatorio:");
-        console.log(`    parcel_ref: ${sample.parcel_ref}`);
-        console.log(`    address: ${sample.address}`);
-        console.log(`    municipality: ${sample.municipality}`);
-        console.log(`    year_built: ${sample.year_built ?? "n/d"}`);
-        console.log(`    total_units: ${sample.total_units}`);
-        const typologies = (sample.typologies as unknown[]) ?? [];
-        console.log(`    tipologías (${typologies.length}):`);
-        for (const t of typologies as Array<{
-          use_category: string;
-          typology_name: string;
-          m2_avg: number;
-          unit_count: number;
-          floors: string;
-        }>) {
+      // ─── Verificación de ida y vuelta ────────────────────────────────
+      //
+      // Aquí había un bloque que, tras CADA municipio, lanzaba dos COUNT
+      // globales y una lectura con OFFSET aleatorio sobre 7,1 M filas.
+      // Medido el 11-08-2026: ~15 s por municipio, de los cuales el COUNT de
+      // `building_typologies` y la lectura aleatoria expiraban casi siempre.
+      // Con 8.393 municipios eran ~35 h de las 94 h de la corrida nacional
+      // — el 37 % — gastadas en diagnósticos que no diagnosticaban.
+      //
+      // Lo que queda comprueba lo único que importa a nivel de fichero: que
+      // un edificio que ACABAMOS de escribir se puede volver a leer, con sus
+      // tipologías. Va por clave primaria, así que es instantáneo. El censo
+      // global vive ahora tras `--census`, para lanzarlo una vez por
+      // provincia y no una vez por municipio.
+      const primera = buildingsRows[0]?.parcel_ref;
+      if (primera) {
+        const leido = await loader.readBackBuilding(primera);
+        if (!leido) {
           console.log(
-            `      · ${t.use_category} ${t.typology_name}: ${t.unit_count} u · ${t.m2_avg} m² · plantas ${t.floors}`,
+            `\n  ⚠️  Verificación: el edificio ${primera} NO se relee tras escribirlo.`,
           );
+        } else {
+          const tips = ((leido.typologies as unknown[]) ?? []) as Array<{
+            use_category: string;
+            typology_name: string;
+            m2_avg: number;
+            unit_count: number;
+            floors: string;
+          }>;
+          console.log(
+            `\n  🔬 Verificación de ida y vuelta: ${leido.address} · ` +
+              `${leido.total_units} unidades · ${tips.length} tipologías releídas`,
+          );
+          for (const t of tips.slice(0, 4)) {
+            console.log(
+              `      · ${t.use_category} ${t.typology_name}: ${t.unit_count} u · ${t.m2_avg} m² · plantas ${t.floors}`,
+            );
+          }
+          if (tips.length === 0) {
+            console.log(
+              "      ⚠️  Cero tipologías releídas: el edificio quedó sin ellas.",
+            );
+          }
         }
       }
+    }
+
+    if (census && !dryRun) {
+      console.log("\n🌍 Censo global (recuento estimado del planificador):");
+      const loaderCenso = new SupabaseLoader({ dryRun });
+      const [b, t] = await Promise.all([
+        loaderCenso.census("buildings"),
+        loaderCenso.census("building_typologies"),
+      ]);
+      console.log(`  - Edificios en BD : ~${fmtNum(b.n)}`);
+      console.log(`  - Tipologías en BD: ~${fmtNum(t.n)}`);
+      console.log(
+        "  (estimado: no escanea las tablas. Un COUNT exacto sobre " +
+          "building_typologies expira.)",
+      );
     }
   } else if (searchRefcat) {
     const found = grouper.find(searchRefcat);
