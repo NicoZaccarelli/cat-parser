@@ -30,7 +30,30 @@ export interface UnidadConstructivaRecord {
 export interface ConstruccionRecord {
   type: "14";
   refcatParcela: string;
+  /**
+   * Posiciones 45-48. Número de orden del ELEMENTO DE CONSTRUCCIÓN, único
+   * por fila dentro de la parcela.
+   *
+   * ⚠️ NO identifica el bien inmueble, pese al nombre. En el registro 15 ese
+   * mismo rango sí es el cargo del bien (forma parte de la RC de 20), y esa
+   * coincidencia de posiciones es lo que indujo el error original. Para
+   * agrupar por bien inmueble usa `bienInmueble` (51-54).
+   */
   cargoUC: string;
+  /**
+   * Posiciones 51-54. Número de orden del BIEN INMUEBLE fiscal al que
+   * pertenece esta fila de construcción. Varias filas comparten valor cuando
+   * el bien ocupa más de un recinto: dúplex (una fila por planta), chalets
+   * (baja + primera + sótano), viviendas con dos recintos en la misma planta.
+   *
+   * Viene VACÍO en las filas de elementos comunes, que no pertenecen a ningún
+   * bien: `BuildingGrouper` las descarta en vez de contarlas como unidades.
+   *
+   * Verificado contra el registro 15 en 136.259 parcelas de Madrid capital:
+   * el 100% de los valores no vacíos existe como cargo de un tipo-15 de la
+   * misma parcela.
+   */
+  bienInmueble: string;
   bloque: string;
   escalera: string;
   planta: string;
@@ -46,7 +69,31 @@ export interface BienInmuebleRecord {
   type: "15";
   refcatParcela: string;
   refcatCompleta: string;
+  /** Posiciones 45-48. Número de orden del bien inmueble; casa con
+   *  `ConstruccionRecord.bienInmueble` (51-54 del registro 14). */
   cargoLocal: string;
+  /**
+   * Posiciones 442-451. Superficie CONSTRUIDA del bien: privativa más los
+   * elementos comunes imputados por coeficiente de participación. Es el
+   * número que muestra la Sede Electrónica del Catastro.
+   *
+   * ⚠️ Esta es la fuente de `m2AvgConstruida`, SUSTITUYE a las posiciones
+   * 98-104 del registro 14 (`superficieComunes`), que en el CAT masivo
+   * vienen a CERO —verificado en Madrid capital, fichero 28900U— y dejaban
+   * el campo muerto. No vuelvas a alimentarlo de ahí.
+   *
+   * Cobertura medida: 99,47% de los registros 15 en Madrid capital, 91,68%
+   * en Manacor. Cuando viene a cero se cae al coeficiente (ver
+   * `BuildingGrouper.finalize`).
+   */
+  superficieConstruida: number;
+  /**
+   * Posiciones 462-466. Coeficiente de participación del bien en los
+   * elementos comunes, entero con 2 decimales implícitos: 329 = 3,29%.
+   * La suma por parcela da 10000 (100,00%) — comprobado en el 73% de las
+   * parcelas de Madrid con ≥2 bienes; el resto queda dentro del redondeo.
+   */
+  coeficienteParticipacion: number;
 }
 
 export type CatRecord =
@@ -60,6 +107,12 @@ export interface Unit {
   usoChar: string;
   planta: string;
   superficie: number;
+  // Superficie de elementos comunes YA imputada a este bien por coeficiente
+  // (pos 98-104 del registro 14). Necesaria para m2 construida = privativa +
+  // comunes (base del IBI). No afecta a `superficie` (privativa) ni a la
+  // agrupación de tipologías. Opcional: los loaders forales no la aportan
+  // (allí m2Construida = privativa), solo la vía DGC la rellena.
+  superficieComunes?: number;
 }
 
 export interface Building {
@@ -77,6 +130,9 @@ export interface Tipologia {
   nombre: string;
   numUnidades: number;
   m2Medio: number;
+  // Media de superficie CONSTRUIDA (privativa + comunes imputados) del grupo.
+  // Derivada sobre los mismos grupos que m2Medio; no cambia la agrupación.
+  m2MedioConstruida: number;
   m2Min: number;
   m2Max: number;
   plantas: string[];

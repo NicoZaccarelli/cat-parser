@@ -85,6 +85,7 @@ function parseConstruccion(line: string): ConstruccionRecord {
     type: "14",
     refcatParcela: slice(line, 31, 44).trim(),
     cargoUC: slice(line, 45, 48).trim(),
+    bienInmueble: slice(line, 51, 54).trim(),
     bloque: slice(line, 59, 62).trim(),
     escalera: slice(line, 63, 64).trim(),
     planta: slice(line, 65, 67).trim(),
@@ -103,25 +104,51 @@ function parseBienInmueble(line: string): BienInmuebleRecord {
     refcatParcela: slice(line, 31, 44).trim(),
     refcatCompleta: slice(line, 31, 50).trim(),
     cargoLocal: slice(line, 45, 48).trim(),
+    superficieConstruida: parseIntSafe(slice(line, 442, 451)),
+    coeficienteParticipacion: parseIntSafe(slice(line, 462, 466)),
   };
 }
 
+// Cuadro 2 del ANEXO del formato CAT — "CODIFICACIÓN DE LOS USOS DE LOS
+// BIENES INMUEBLES". Fuente: Dirección General del Catastro, "Fichero
+// informático de remisión de catastro", revisión 16-11-2022.
+// https://www.catastro.hacienda.gob.es/documentos/formatos_intercambio/catastro_fin_cat_2006.pdf
+//
+// ⚠️ NO IMPROVISES ETIQUETAS AQUÍ. Tres de estas claves estuvieron mal desde
+// el commit inicial (02-05-2026) porque se dedujeron del código en vez de
+// leerlas del cuadro, y el error viajó a todas las provincias cargadas:
+//
+//   G  decía "Ganadero"              y es Ocio y Hostelería.  273.569 filas.
+//      Los códigos reales de Madrid capital lo delatan: GH1..GH5 (hoteles por
+//      estrellas), GR1..GR5 (restaurantes), GC1..GC5, GP1..GP3. Nada ganadero.
+//   J  decía "Industrial no agrario" y es Industrial agrario — invertido.
+//   T  decía "Espectáculos / Ocio"   y es solo Espectáculos; el ocio es G.
+//   M  se dejaba a medias: el cuadro añade "suelos sin edificar".
+//
+// V se queda como "Vivienda" y no como el "Residencial" del cuadro: el
+// literal es la clave del gate residencial de la app
+// (RESIDENTIAL_USE_CATEGORY en predios-mvp/app/lib/typologyRules.ts) y de la
+// deduplicación de `saved_properties`. Cambiarlo son cuatro sitios a la vez.
+// Decisión congelada.
 const USO_CATEGORIAS: Record<string, string> = {
-  V: "Vivienda",
   A: "Almacén-Estacionamiento",
+  V: "Vivienda", // el cuadro dice "Residencial"; ver nota arriba
   I: "Industrial",
   O: "Oficinas",
   C: "Comercial",
   K: "Deportivo",
-  T: "Espectáculos / Ocio",
+  T: "Espectáculos",
+  G: "Ocio y Hostelería",
+  // El cuadro dice "Sanidad y Beneficencia"; se conserva la barra por no
+  // abrir una quinta migración de datos fuera del alcance acordado. La
+  // diferencia es tipográfica, no de significado.
   Y: "Sanidad / Beneficencia",
   E: "Cultural",
   R: "Religioso",
-  M: "Obras de urbanización y jardinería",
+  M: "Obras de urbanización y jardinería, suelos sin edificar",
   P: "Edificio singular",
-  J: "Industrial no agrario",
   B: "Almacén agrario",
-  G: "Ganadero",
+  J: "Industrial agrario",
   Z: "Agrario",
 };
 
