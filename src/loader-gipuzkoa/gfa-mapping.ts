@@ -34,7 +34,12 @@ export const GFA_KNOWN_MAPPING: Record<string, string> = {
   K: "Deportivo",             // 709    (misma letra que DGC K=Deportivo)
   R: "Religioso",             // 224    (misma letra que DGC R=Religioso)
   Y: "Sanidad / Beneficencia",// 33     (misma letra que DGC Y=Sanidad)
-  Q: "Espectáculos / Ocio",   // 24     (misma letra que DGC T pero GFA usa T=Trastero)
+  // 24 en Donostia. Mapeado por analogía con DGC T (misma letra que DGC T,
+  // pero GFA usa T=Trastero). Sigue la corrección de USO_CATEGORIAS: el
+  // cuadro 2 de la DGC dice "Espectáculos" a secas — el ocio es la letra G,
+  // que en GFA significa Garaje. Sin este cambio, la próxima carga de
+  // Gipuzkoa reintroduciría el literal viejo justo después del UPDATE.
+  Q: "Espectáculos",
 
   // ─ Confianza media (analogía DGC; consultar hirilurra@gipuzkoa.eus si dudas) ─
   E: "Cultural",              // 805 — DGC E=Cultural
@@ -50,7 +55,7 @@ export const GFA_KNOWN_MAPPING: Record<string, string> = {
 export const GFA_UNKNOWN_CODES = new Set<string>([
   "Z", // 6.452 — DGC Z=Agrario, pero Donostia tiene poco agrario (¿otra cosa?)
   "X", // 4.094
-  "J", // 1.160 — DGC J=Industrial no agrario (dudoso en Donostia)
+  "J", // 1.160 — DGC J=Industrial agrario (dudoso en Donostia)
   "S", // 943
   "H", // 605
   "B", // 400 — DGC B=Almacén agrario (dudoso)
