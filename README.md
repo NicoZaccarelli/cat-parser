@@ -77,6 +77,65 @@ casi todo es npx resolviendo el paquete. Sobre 8.393 municipios son 2,4 h.
 Madrid capital necesita `NODE_OPTIONS=--max-old-space-size=10240`.
 `load-provincia.ps1` ya lo pone.
 
+## ⚠️ Contra qué base se escribe
+
+Una carga de provincia **BORRA e inserta por parcela** (`replaceTypologies`) y
+elimina las que caen bajo el umbral (`deleteBuildings`). Lanzada contra la base
+equivocada no ensucia: destruye.
+
+Por eso hay una **guarda de entorno** en tres capas, y **aborta por defecto**:
+
+| capa | dónde | por qué ahí |
+|---|---|---|
+| 1 | `main()`, antes de `readCatFile` | falla en 3,6 s, sin llegar a parsear |
+| 2 | `SupabaseLoader`, en toda escritura | `main()` no es el único sitio que instancia un loader |
+| 3 | `load-provincia.ps1`, antes del bucle | si no, lanzaría los 183 municipios y vería fallar los 183 |
+
+La comprobación es **positiva**: la base de desarrollo se identifica con una
+tabla `_entorno` que producción no tiene. No se comprueba la URL — una lista de
+hosts caduca y un `.env` mal copiado lleva la de producción con toda
+naturalidad; una tabla que no existe no se puede fingir. Si el entorno resulta
+**indeterminado, también aborta**: el supuesto seguro es que es producción.
+
+```
+⛔ [carga] Abortado antes de escribir nada: la base NO tiene la tabla
+   "_entorno", así que es PRODUCCIÓN.
+   Host: xxxxx.supabase.co
+```
+
+### Cargar en producción — que es lo normal
+
+Sigue siendo posible; lo que cambia es que hay que **decirlo**:
+
+```powershell
+$env:PERMITIR_PRODUCCION = "1"
+.\scripts\load-provincia.ps1 -Provincia soria -GzDir "E:\canScan\cat\Soria\42_U_23012026_CAT"
+```
+
+```bash
+PERMITIR_PRODUCCION=1 node node_modules/tsx/dist/cli.mjs src/index.ts <fichero.CAT> --load
+```
+
+El script pide además **escribir el nombre del host** para confirmar. No es
+ceremonia: la variable puede haber quedado de una sesión anterior en la misma
+terminal, y ese es justo el descuido que ataja.
+
+`--dry-run` y las corridas de inspección **no** comprueban nada, porque no
+escriben.
+
+### La clave de servicio
+
+`SUPABASE_URL` y `SUPABASE_SERVICE_KEY` viven en `.env` (ver `.env.example`).
+Esa clave **salta el RLS**, así que la guarda de arriba es lo único que separa
+un ensayo de un borrado en producción.
+
+> En el repo de la app (`predios-mvp`) la política es distinta y más estricta:
+> allí la service key **no** está en `.env.local`, sino en un fichero aparte
+> que Next no carga, y se aporta en cada invocación. Aquí no se ha hecho igual
+> porque el parser **siempre** necesita escribir —es su único propósito— y
+> obligar a aportarla en cada llamada solo añadiría fricción sin quitar
+> riesgo: el riesgo lo quita la guarda de entorno.
+
 ## Estado
 
 **Soria validada con `load-provincia.ps1` el 12-08-2026.** 183 municipios de
@@ -157,6 +216,38 @@ de Supabase es el factor que no controlamos, y basta un puñado de municipios
 tocando el corte de 180 s para mover el total una hora.
 
 Los cuatro forales van aparte y no cuentan aquí: no parten de ficheros CAT.
+
+## ⛔ Antes de la Fase 2: el entorno de desarrollo
+
+La **Fase 2** —usar el uso declarado del bien inmueble (registro 15, posición
+428) y la planta declarada (252-254) en vez de inferirlos del destino de los
+recintos— cambia **21.970 bienes en 18.959 parcelas solo en Madrid capital**
+(ver `goldens/afectadas-fase2-madrid-2026-01-23.csv`) y entre **120 y 160 M de
+m²** a escala nacional. Exige una reingesta de **~22 h**.
+
+**Montar un entorno de desarrollo de Supabase es paso PREVIO OBLIGATORIO**, no
+una tarea suelta. Ensayar esa reingesta contra producción no es defendible, y
+hoy no hay otro sitio donde ensayarla.
+
+Decidido el 12-08-2026: **proyecto Supabase aparte, plan Free**. El trabajo no
+es crear el proyecto —30 minutos— sino reconstruir un esquema que lleva meses
+divergiendo del repo: **8-11 h**, con cuatro tablas que no existen en ningún
+repositorio y hay que volcar con `supabase db dump`.
+
+**El desglose completo, las alternativas descartadas y las cuatro tablas están
+en el README de `predios-mvp`**, que es donde vive la carpeta canónica de
+migraciones.
+
+### ⚠️ Las migraciones de este repo están congeladas
+
+`supabase/schema.sql` y `supabase/migrations/` de aquí describen `buildings`,
+`building_typologies`, `buildings_full`, `parcel_geometries` y las tres
+funciones RPC forales. **A partir de ahora las migraciones nuevas van a
+`predios-mvp/supabase/migrations`**, que es la carpeta canónica.
+
+Dos carpetas con un README que fije el orden es una convención que alguien
+romperá; una sola no se puede romper. Lo de aquí se moverá allí como parte del
+baseline del entorno de desarrollo.
 
 ## Estructura
 
