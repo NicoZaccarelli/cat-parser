@@ -7,38 +7,26 @@ que parten de formatos propios y no del CAT.
 
 ---
 
-> # ⛔ NO REINGIERAS DESDE `main`
+> ## Antes de reingerir: comprueba en qué commit estás
 >
-> **`main` está congelada en el estado de mayo de 2026 y produce datos
-> incorrectos.** Le faltan siete commits que viven en
-> `fix/agrupar-por-bien-inmueble`, entre ellos el arreglo del bug del dúplex.
+> El agrupamiento por bien inmueble entró en `main` el **12-08-2026**, con el
+> merge `30a5209`. Cualquier checkout anterior produce datos incorrectos.
 >
-> Cargar una provincia desde `main` **regenera ese bug**: cada bien inmueble
-> repartido en varias plantas se parte en una unidad por planta, así que un
-> edificio de 32 dúplex sale con 64 viviendas de la mitad de superficie y cada
-> una se valora a la mitad. Verificado en Santa Prisca 2 (Madrid).
->
-> **Usa `fix/agrupar-por-bien-inmueble` o una rama construida encima de ella**
-> hasta que el merge esté hecho. Comprueba en qué rama estás antes de lanzar
-> nada:
+> El fallo no avisa: los ficheros se cargan, el script dice OK y la base queda
+> con el doble de viviendas de la mitad de superficie, cada una valorada a la
+> mitad. Un bien inmueble repartido en varias plantas se parte en una unidad
+> por planta — 32 dúplex salen como 64 pisos. Verificado en Santa Prisca 2
+> (Madrid).
 >
 > ```
-> git -C D:\canScan\cat-parser rev-parse --abbrev-ref HEAD
+> git -C D:\canScan\cat-parser merge-base --is-ancestor 30a5209 HEAD \
+>   && echo "OK: incluye el agrupamiento por bien inmueble" \
+>   || echo "PELIGRO: este checkout es anterior. Actualiza antes de cargar."
 > ```
 >
-> Los siete commits pendientes:
->
-> | commit | qué aporta |
-> |---|---|
-> | `aacaaee` | `m2_avg_construida` por tipología y la opción `--only-parcels` |
-> | `9cbe4a3` | documenta que `m2MedioConstruida` está dormido en Madrid capital |
-> | `d6a189b` | **el arreglo del dúplex**: una unidad por bien inmueble, no por fila de construcción |
-> | `4d73822` | superficie construida desde el registro 15 (442-451), que sustituye a las posiciones 98-104 del registro 14 |
-> | `9fe0b1a` | gate de validación del layout: aborta antes de escribir si el fichero no cuadra |
-> | `1e99a08` | buffer de una sola parcela en el agrupador; sin él Madrid capital agota el heap |
-> | `ce2d844` | borra las parcelas que caen bajo el umbral y escribe lote a lote |
->
-> Este aviso se retira cuando `main` los contenga.
+> `scripts/load-provincia.ps1` hace esta comprobación por su cuenta y aborta
+> si no se cumple, así que la vía normal está cubierta. Este recordatorio es
+> para quien invoque `src/index.ts --load` a mano.
 
 ---
 
