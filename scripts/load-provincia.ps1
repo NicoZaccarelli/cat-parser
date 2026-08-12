@@ -22,11 +22,18 @@
 #      sobra para el municipio sano más grande (Murcia capital: 32 MB, 651 s
 #      en junio, la mayoría censo y red).
 #
-#   4) SLEEP 1 s en vez de 3. Medido: 15 municipios seguidos SIN sleep dejan
-#      la memoria libre del sistema en 5,70 GB partiendo de 5,53 GB — no
-#      crece nada. La cascada que motivó los 3 s de la v2 era el índice
-#      global de parcelas del agrupador, que 1e99a08 eliminó. Se baja a 1 s
-#      y no a 250 ms para validarlo antes en una provincia pequeña.
+#   4) SLEEP 250 ms en vez de los 3 s de la v2. Se bajó primero a 1 s y se
+#      validó con Soria entera —183 municipios seguidos— antes de llegar aquí.
+#      La evidencia es el pico de memoria POR PROCESO, que no depende de lo
+#      que haga el resto de la máquina: 363 MB en el primer tercio (Soria
+#      capital, que va primera porque se ordena por tamaño) y luego plano en
+#      132 MB los otros dos tercios, con pendiente de −8,75 MB/min. No sube.
+#      La memoria libre del SISTEMA es un proxy contaminado —oscila ±600 MB
+#      con el navegador abierto— y no sirve para decidir esto.
+#      Control adicional: 15 municipios de Granada SIN sleep ninguno dejaron
+#      la memoria libre en 5,70 GB partiendo de 5,53 GB.
+#      La cascada que motivó los 3 s era el índice global de parcelas del
+#      agrupador, que 1e99a08 eliminó. El sleep sobrevivió a su causa.
 #
 #   5) ARRANQUE. `node node_modules/tsx/dist/cli.mjs` en vez de `npx.cmd tsx`:
 #      mismo transpilador, sin la resolución de paquete de npx. Medido 0,49 s
@@ -47,7 +54,7 @@ param(
   [Parameter(Mandatory = $true)] [string] $GzDir,
   [string]   $LogsDir     = "",
   [int]      $TimeoutSeg  = 180,
-  [int]      $SleepSeg    = 1,
+  [int]      $SleepMs     = 250,
   [string[]] $SoloCodigos = @(),
   [string[]] $Excluir     = @(),
   [switch]   $DryRun
@@ -239,7 +246,7 @@ Write-Host " provincia : $Provincia"
 Write-Host " ficheros  : $($files.Count)"
 Write-Host " rama      : $(git -C $parserDir rev-parse --abbrev-ref HEAD)  ($(git -C $parserDir rev-parse --short HEAD))"
 Write-Host " modo      : $(if ($DryRun) { 'DRY-RUN (no escribe en Supabase)' } else { 'CARGA REAL' })"
-Write-Host " corte     : $TimeoutSeg s    sleep: $SleepSeg s"
+Write-Host " corte     : $TimeoutSeg s    sleep: $SleepMs ms"
 Write-Host " csv       : $csvPath"
 Write-Host "═══════════════════════════════════════════════════════════════"
 
@@ -264,7 +271,7 @@ foreach ($file in $files) {
   $i++
   $ultimo = ($i -eq $files.Count)
   $resultados += Invoke-Municipio -file $file -etiqueta ("[{0,4}/{1}]" -f $i, $files.Count) -UltimoDeLaProvincia:$ultimo
-  if (-not $ultimo) { Start-Sleep -Seconds $SleepSeg }
+  if (-not $ultimo) { Start-Sleep -Milliseconds $SleepMs }
 }
 
 # ─── Cola de reintentos ──────────────────────────────────────────────────────
@@ -279,7 +286,7 @@ if ($pendientes.Count -gt 0) {
     $j++
     $r = Invoke-Municipio -file $p.File -etiqueta ("[retry {0}/{1}]" -f $j, $pendientes.Count)
     $resultados = @($resultados | Where-Object { $_.Code -ne $r.Code }) + $r
-    Start-Sleep -Seconds $SleepSeg
+    Start-Sleep -Milliseconds $SleepMs
   }
 }
 
@@ -287,15 +294,19 @@ if ($pendientes.Count -gt 0) {
 
 Write-Host ""
 Write-Host "═══════════════════ RESUMEN · $Provincia ═══════════════════"
+# ⚠️ Todo el resumen sale por Write-Host, no por la tubería. Mezclar los dos
+# hace que al redirigir a fichero las líneas se ENTRELACEN sin orden: en el log
+# de Soria el "Sin municipios pendientes" aparecía antes que los recuentos.
 foreach ($e in @("OK", "VACIO", "PARCIAL", "SIN_CARGA", "ABORTADO", "FALLIDO")) {
   # @() obliga a array: con un solo elemento, Where-Object devuelve un escalar
   # y .Count viene vacío en el -f, así que el resumen salía en blanco.
   $n = @($resultados | Where-Object { $_.Status -eq $e }).Count
-  if ($n -gt 0 -or $e -eq "OK") { "  {0,-10} {1,5}" -f $e, $n }
+  if ($n -gt 0 -or $e -eq "OK") { Write-Host ("  {0,-10} {1,5}" -f $e, $n) }
 }
-"  {0,-10} {1,5:N1} s ({2:N2} h)" -f "tiempo", (($resultados | Measure-Object Seg -Sum).Sum), ((($resultados | Measure-Object Seg -Sum).Sum) / 3600)
-"  {0,-10} {1,5}" -f "edificios", (($resultados | Measure-Object B -Sum).Sum)
-"  {0,-10} {1,5}" -f "tipologías", (($resultados | Measure-Object T -Sum).Sum)
+$segTotal = ($resultados | Measure-Object Seg -Sum).Sum
+Write-Host ("  {0,-10} {1,5:N1} s ({2:N2} h)" -f "tiempo", $segTotal, ($segTotal / 3600))
+Write-Host ("  {0,-10} {1,5}" -f "edificios", (($resultados | Measure-Object B -Sum).Sum))
+Write-Host ("  {0,-10} {1,5}" -f "tipologías", (($resultados | Measure-Object T -Sum).Sum))
 Write-Host ""
 $malos = @($resultados | Where-Object { $REENCOLABLES -contains $_.Status })
 if ($malos.Count -eq 0) {

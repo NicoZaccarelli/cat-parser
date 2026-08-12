@@ -52,6 +52,23 @@ npx tsx src/index.ts <fichero.CAT> --load --only-parcels refs.txt
 Madrid capital necesita `NODE_OPTIONS=--max-old-space-size=10240`. Los
 scripts de `scripts/` ya lo ponen.
 
+## Coste de una reingesta
+
+La corrida nacional de junio-julio de 2026 tardó **101,4 h** de reloj: 94,4 h
+medidas por el propio script más 7,0 h de `Start-Sleep`. De aquello, muy poco
+era trabajo:
+
+| se fue en | coste | qué era |
+|---|---|---|
+| censo global por municipio | ~35 h | dos `COUNT` sobre tablas de millones y una lectura con `OFFSET` aleatorio, de las que dos expiraban **siempre** |
+| `Start-Sleep 3` entre municipios | 7,0 h | mitigación de una cascada de memoria que `1e99a08` ya había resuelto por otra vía |
+| resolución de `npx` en cada arranque | ~2,4 h | 1,54 s por municipio en vez de 0,49 s |
+| municipios reintentando contra Supabase | ~12 h | 21 municipios pasaron de 600 s; uno de 37 KB estuvo **8,3 h** |
+
+Todo eso está corregido. El censo vive tras `--census` y corre una vez por
+provincia; el sleep está en 250 ms; el arranque llama a `node` con el `tsx`
+local; y el corte de 180 s mata y reencola lo que se atasca en la red.
+
 ## Estructura
 
 | ruta | qué hace |
