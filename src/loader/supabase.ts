@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
+import { assertEntornoPermitido } from "./entorno";
 
 dotenv.config();
 
@@ -39,6 +40,21 @@ export class SupabaseLoader {
   private batchSize: number;
   private progressEvery: number;
 
+  /**
+   * Guarda de entorno, lanzada en el constructor y esperada por TODA
+   * escritura.
+   *
+   * ⚠️ Es la segunda línea de defensa, no la primera. La primera está en
+   * `main()`, antes de `readCatFile`, porque el loader se construye DESPUÉS
+   * de parsear: comprobar solo aquí abortaría tras haber leído el CAT entero
+   * —minutos en una provincia grande— en vez de al arrancar.
+   *
+   * Esta existe igualmente porque `main()` no es el único sitio desde el que
+   * se puede instanciar un loader, y una guarda que depende de que el
+   * llamante se acuerde no es una guarda.
+   */
+  private entornoOk: Promise<void> = Promise.resolve();
+
   constructor(opts: LoaderOpts) {
     this.dryRun = opts.dryRun;
     // Batch size reducido tras observar statement timeouts en Málaga: con 500
@@ -53,10 +69,22 @@ export class SupabaseLoader {
           "Faltan SUPABASE_URL / SUPABASE_SERVICE_KEY en .env",
         );
       }
+      // El constructor no puede ser async, así que se guarda la promesa y la
+      // esperan los métodos de escritura. Si la guarda falla, el rechazo sale
+      // por el primer `await this.entornoOk` — nunca por un unhandled
+      // rejection, porque toda escritura pasa por `requireEntorno()`.
+      this.entornoOk = assertEntornoPermitido(url, key, "SupabaseLoader");
+      this.entornoOk.catch(() => {}); // evita el unhandled si nadie escribe
       this.client = createClient(url, key, {
         auth: { persistSession: false, autoRefreshToken: false },
       });
     }
+  }
+
+  /** Toda escritura pasa por aquí antes de tocar nada. */
+  private async requireEntorno(): Promise<void> {
+    if (this.dryRun) return;
+    await this.entornoOk;
   }
 
   isDryRun(): boolean {
@@ -74,6 +102,7 @@ export class SupabaseLoader {
     inserted: number;
     errors: number;
   }> {
+    await this.requireEntorno();
     if (this.dryRun) {
       return { inserted: rows.length, errors: 0 };
     }
@@ -127,6 +156,7 @@ export class SupabaseLoader {
     inserted: number;
     errors: number;
   }> {
+    await this.requireEntorno();
     if (this.dryRun) {
       return { inserted: rows.length, errors: 0 };
     }
@@ -210,6 +240,7 @@ export class SupabaseLoader {
    * una parcela que esta corrida no ha procesado.
    */
   async deleteBuildings(parcelRefs: string[]): Promise<{ deleted: number }> {
+    await this.requireEntorno();
     if (this.dryRun || parcelRefs.length === 0) {
       return { deleted: parcelRefs.length };
     }

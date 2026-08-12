@@ -241,14 +241,93 @@ if ($Excluir.Count -gt 0) {
   $files = $files | Where-Object { $Excluir -notcontains (($_.Name -split '_')[0]) }
 }
 
+# ─── A dónde se va a escribir ────────────────────────────────────────────────
+# El host se saca del .env del parser y se enseña en la cabecera, junto a la
+# rama y el modo. Que esté a la vista ANTES de empezar es la mitad del valor:
+# el otro accidente posible no es cargar desde el commit equivocado, es cargar
+# contra la base equivocada.
+$envPath = Join-Path $parserDir ".env"
+$supabaseHost = "(sin .env)"
+if (Test-Path $envPath) {
+  $linea = Select-String -Path $envPath -Pattern '^\s*SUPABASE_URL\s*=' | Select-Object -First 1
+  if ($linea) {
+    $valor = ($linea.Line -split '=', 2)[1].Trim().Trim('"').Trim("'")
+    try { $supabaseHost = ([System.Uri]$valor).Host } catch { $supabaseHost = "(url ilegible)" }
+  }
+}
+
 Write-Host "═══════════════════════════════════════════════════════════════"
 Write-Host " provincia : $Provincia"
 Write-Host " ficheros  : $($files.Count)"
 Write-Host " rama      : $(git -C $parserDir rev-parse --abbrev-ref HEAD)  ($(git -C $parserDir rev-parse --short HEAD))"
 Write-Host " modo      : $(if ($DryRun) { 'DRY-RUN (no escribe en Supabase)' } else { 'CARGA REAL' })"
+Write-Host -NoNewline " destino   : $supabaseHost"
+if ($DryRun) { Write-Host "  (no se escribe)" }
+elseif ($env:PERMITIR_PRODUCCION -eq "1" -or $env:PERMITIR_PRODUCCION -eq "true") {
+  Write-Host "   ⚠️  PERMITIR_PRODUCCION ACTIVO" -ForegroundColor Yellow
+} else { Write-Host "" }
 Write-Host " corte     : $TimeoutSeg s    sleep: $SleepMs ms"
 Write-Host " csv       : $csvPath"
 Write-Host "═══════════════════════════════════════════════════════════════"
+
+# ─── Comprobación de entorno, UNA vez y antes del bucle ──────────────────────
+#
+# `src/loader/entorno.ts` ya aborta cada municipio que intente escribir en
+# producción sin permiso. Pero sin esta comprobación previa el script lanzaría
+# los 183 municipios de una provincia y vería fallar los 183, uno a uno, a tres
+# segundos cada uno. Se sondea aquí y se decide una sola vez.
+$escapeActivo = ($env:PERMITIR_PRODUCCION -eq "1" -or $env:PERMITIR_PRODUCCION -eq "true")
+
+if (-not $DryRun) {
+  $svcKey = ""
+  if (Test-Path $envPath) {
+    $l = Select-String -Path $envPath -Pattern '^\s*SUPABASE_SERVICE_KEY\s*=' | Select-Object -First 1
+    if ($l) { $svcKey = ($l.Line -split '=', 2)[1].Trim().Trim('"').Trim("'") }
+  }
+
+  # Positivo, no por URL: la base de desarrollo se identifica con una tabla
+  # `_entorno` que producción no tiene. Una lista de hosts prohibidos caduca;
+  # una tabla que no existe no se puede fingir.
+  $esDesarrollo = $false
+  if ($svcKey) {
+    try {
+      $u = "$(($envPath | Out-Null); '')"  # no-op para legibilidad
+      $resp = Invoke-RestMethod -Method Get -TimeoutSec 20 `
+        -Uri "https://$supabaseHost/rest/v1/_entorno?select=nombre&limit=1" `
+        -Headers @{ apikey = $svcKey; Authorization = "Bearer $svcKey" }
+      if ($resp -and $resp[0].nombre -eq "desarrollo") { $esDesarrollo = $true }
+    } catch {
+      # 404 / tabla inexistente → producción. Cualquier otro error deja
+      # $esDesarrollo en false, que es el supuesto seguro.
+    }
+  }
+
+  if (-not $esDesarrollo) {
+    if (-not $escapeActivo) {
+      Write-Host ""
+      Write-Host " ⛔ $supabaseHost NO es la base de desarrollo: no tiene la tabla _entorno." -ForegroundColor Red
+      Write-Host "    Una carga BORRA e inserta por parcela. Abortado antes de tocar nada." -ForegroundColor Red
+      Write-Host ""
+      Write-Host "    Si de verdad quieres cargar contra esta base:" -ForegroundColor Red
+      Write-Host "      `$env:PERMITIR_PRODUCCION='1'; .\scripts\load-provincia.ps1 ..." -ForegroundColor Red
+      exit 1
+    }
+
+    # Con la vía de escape puesta se pregunta igualmente. Puede haberse
+    # activado a propósito… o haber quedado de una sesión anterior en la misma
+    # terminal, que es justo el descuido que esto ataja. Preguntar cuesta tres
+    # segundos; una provincia cargada en la base equivocada, mucho más.
+    Write-Host ""
+    Write-Host " ⚠️  Vas a ESCRIBIR en $supabaseHost, que NO es desarrollo." -ForegroundColor Yellow
+    Write-Host "    Son $($files.Count) municipio(s), y la carga BORRA e inserta por parcela." -ForegroundColor Yellow
+    $conf = Read-Host "    Escribe el host para confirmar"
+    if ($conf -ne $supabaseHost) {
+      Write-Host " Cancelado (esperaba '$supabaseHost', recibí '$conf')." -ForegroundColor Red
+      exit 1
+    }
+    Write-Host ""
+  }
+}
 
 # El peligro no es una rama concreta: es un checkout anterior al merge que
 # trajo el agrupamiento por bien inmueble. Comprobarlo por ancestro cubre

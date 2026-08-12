@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { readCatFile } from "./parser/catReader";
+import { assertEntornoPermitido, hostDe } from "./loader/entorno";
 import { isCommonElement } from "./parser/recordParser";
 import {
   parseSourceDateFromHeader,
@@ -173,10 +174,27 @@ async function main() {
   }
   console.log(`📂 Archivo: ${filePath}`);
   if (load && !dryRun) {
-    console.log(`🔌 Supabase: ${process.env.SUPABASE_URL ?? "(no configurado)"}`);
+    console.log(`🔌 Supabase: ${hostDe(process.env.SUPABASE_URL ?? "")}`);
   }
   if (searchRefcat) console.log(`🔍 Búsqueda: ${searchRefcat}`);
   if (onlyParcelsSet) console.log(`🎯 Ingesta filtrada: ${fmtNum(onlyParcelsSet.size)} parcel_ref (${onlyParcels})`);
+
+  // ⚠️ La guarda de entorno va AQUÍ, antes de `readCatFile`, y no solo en el
+  // constructor de SupabaseLoader: ese se instancia después de parsear, así
+  // que comprobar únicamente allí abortaría tras haber leído el fichero
+  // entero — minutos en una provincia grande, y casi una hora en Madrid
+  // capital. Fallar antes de empezar es la mitad del valor de una guarda.
+  //
+  // El loader la repite igualmente en toda escritura: main() no es el único
+  // sitio desde el que se puede instanciar uno.
+  if (load && !dryRun) {
+    await assertEntornoPermitido(
+      process.env.SUPABASE_URL ?? "",
+      process.env.SUPABASE_SERVICE_KEY ?? "",
+      "carga",
+    );
+  }
+
   console.log("⏳ Procesando...\n");
 
   const grouper = new BuildingGrouper();
@@ -429,6 +447,19 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("Error fatal:", err);
-  process.exit(1);
+  const msg = err instanceof Error ? err.message : String(err);
+  // La guarda de entorno ya trae su mensaje formateado y explica qué hacer.
+  // El volcado de pila solo añadiría ruido: abortar ahí no es un bug, es la
+  // guarda funcionando.
+  if (msg.includes("Abortado antes de escribir nada")) {
+    console.error(msg);
+  } else {
+    console.error("Error fatal:", err);
+  }
+  // `process.exitCode` y no `process.exit()`: cortar de golpe con los sockets
+  // de undici todavía cerrándose dispara una aserción de libuv en Windows
+  // ("!(handle->flags & UV_HANDLE_CLOSING)") que sustituye el código de salida
+  // por 127. El script de carga lee ese código para decidir el estado del
+  // municipio, así que tiene que ser el que queremos.
+  process.exitCode = 1;
 });
