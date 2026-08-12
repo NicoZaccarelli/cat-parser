@@ -243,13 +243,18 @@ Write-Host " corte     : $TimeoutSeg s    sleep: $SleepSeg s"
 Write-Host " csv       : $csvPath"
 Write-Host "═══════════════════════════════════════════════════════════════"
 
-# ⛔ La rama importa: main no lleva el arreglo del dúplex. Ver README.
-$rama = git -C $parserDir rev-parse --abbrev-ref HEAD
-if ($rama -eq "main") {
+# El peligro no es una rama concreta: es un checkout anterior al merge que
+# trajo el agrupamiento por bien inmueble. Comprobarlo por ancestro cubre
+# también las ramas creadas desde un punto viejo, que la comprobación por
+# nombre dejaba pasar.
+$COMMIT_AGRUPAMIENTO = "30a5209"   # merge del 12-08-2026
+git -C $parserDir merge-base --is-ancestor $COMMIT_AGRUPAMIENTO HEAD 2>$null
+if ($LASTEXITCODE -ne 0) {
   Write-Host ""
-  Write-Host " ⛔ ESTÁS EN main. main NO lleva el arreglo del bug del dúplex:" -ForegroundColor Red
-  Write-Host "    cargar desde aquí parte cada bien multi-planta en una unidad" -ForegroundColor Red
-  Write-Host "    por planta. Ver el aviso del README. Abortando." -ForegroundColor Red
+  Write-Host " ⛔ Este checkout es ANTERIOR al agrupamiento por bien inmueble." -ForegroundColor Red
+  Write-Host "    Cargar desde aquí parte cada bien multi-planta en una unidad" -ForegroundColor Red
+  Write-Host "    por planta y deja la base con el doble de viviendas de la" -ForegroundColor Red
+  Write-Host "    mitad de superficie. Actualiza a $COMMIT_AGRUPAMIENTO o posterior." -ForegroundColor Red
   exit 1
 }
 
