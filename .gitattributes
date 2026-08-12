@@ -1,3 +1,4 @@
-# El golden se verifica por sha256 (ver goldens/README.md). Sin esto, git
-# convierte LF a CRLF al hacer checkout en Windows y el hash deja de casar.
+# El golden y la lista de afectadas se verifican por sha256 (ver goldens/README.md).
+# Sin esto, git convierte LF a CRLF al hacer checkout en Windows y el hash deja de casar.
 goldens/*.ndjson -text
+goldens/*.csv -text
